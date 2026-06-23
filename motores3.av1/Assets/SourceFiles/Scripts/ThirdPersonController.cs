@@ -155,18 +155,17 @@ namespace StarterAssets
             CameraRotation();
         }
 
-        // --- ADICIONADO PARA A ATIVIDADE ---
-        private void OnTriggerEnter(Collider other)
-        {
-            if (other.CompareTag("Coin"))
-            {
-                Destroy(other.gameObject);
-                _moedasColetadas++;
-                // Dispara o evento para qualquer UI que esteja escutando
-                PlayerOM.OnCoinCountChanged?.Invoke(_moedasColetadas);
-            }
-        }
-        // ------------------------------------
+    
+     private void OnTriggerEnter(Collider other)
+{
+    if (other.CompareTag("Coin"))
+    {
+        Destroy(other.gameObject);
+        _moedasColetadas++;
+
+        PlayerOM.UpdateCoinCount(_moedasColetadas);
+    }
+}
 
         private void AssignAnimationIDs()
         {
