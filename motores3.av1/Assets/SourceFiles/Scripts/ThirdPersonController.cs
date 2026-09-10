@@ -6,13 +6,14 @@ using UnityEngine.InputSystem;
 namespace StarterAssets
 {
     [RequireComponent(typeof(CharacterController))]
+    [RequireComponent(typeof(StarterAssetsInputs))]
 #if ENABLE_INPUT_SYSTEM 
     [RequireComponent(typeof(PlayerInput))]
 #endif
     public class ThirdPersonController : MonoBehaviour
     {
         [Header("Player Identity")]
-        [Tooltip("1 para Player 1 (WASD/Space) ou 2 para Player 2 (Setas/Numpad0)")]
+        [Tooltip("1 para Player 1 ou 2 para Player 2")]
         public int PlayerID = 1;
 
         [Header("Câmera do Jogador (Split-Screen)")]
@@ -81,13 +82,13 @@ namespace StarterAssets
             _input = GetComponent<StarterAssetsInputs>();
 #if ENABLE_INPUT_SYSTEM 
             _playerInput = GetComponent<PlayerInput>();
+            ConfigureControlScheme();
 #endif
             AssignAnimationIDs();
 
             _jumpTimeoutDelta = JumpTimeout;
             _fallTimeoutDelta = FallTimeout;
 
-            // Se não atribuir manualmente no Inspector, tenta pegar a Camera principal como fallback
             if (playerCameraTransform == null && Camera.main != null)
             {
                 playerCameraTransform = Camera.main.transform;
@@ -98,11 +99,43 @@ namespace StarterAssets
         {
             _hasAnimator = TryGetComponent(out _animator);
 
-            HandleKeyboardInputByID();
+#if ENABLE_INPUT_SYSTEM
+            ReadInputFromControlScheme();
+#endif
             JumpAndGravity();
             GroundedCheck();
             Move();
         }
+
+#if ENABLE_INPUT_SYSTEM
+        private void ConfigureControlScheme()
+        {
+            if (_playerInput == null) return;
+
+            _playerInput.defaultActionMap = "Player";
+            _playerInput.currentActionMap?.Enable();
+
+            if (Keyboard.current != null)
+            {
+                // Aplica o Scheme "Player1_scheme" ou "Player2_shceme" cadastrado no Input Actions
+                string schemeName = (PlayerID == 1) ? "Player1_scheme" : "Player2_shceme";
+                _playerInput.SwitchCurrentControlScheme(schemeName, Keyboard.current);
+            }
+        }
+
+        private void ReadInputFromControlScheme()
+        {
+            if (_playerInput == null || _playerInput.actions == null || _input == null) return;
+
+            InputAction moveAction = _playerInput.actions.FindAction("Move");
+            InputAction jumpAction = _playerInput.actions.FindAction("Jump");
+            InputAction sprintAction = _playerInput.actions.FindAction("Sprint");
+
+            if (moveAction != null) _input.move = moveAction.ReadValue<Vector2>();
+            if (jumpAction != null) _input.jump = jumpAction.IsPressed();
+            if (sprintAction != null) _input.sprint = sprintAction.IsPressed();
+        }
+#endif
 
         public void ApplySpeedBoost()
         {
@@ -110,42 +143,23 @@ namespace StarterAssets
             SprintSpeed += SpeedBoostPerCoin;
         }
 
-        private void HandleKeyboardInputByID()
+        // --- COLETA DE MOEDAS E DESTRUIÇÃO DO OBJETO ---
+  private void OnTriggerEnter(Collider other)
 {
-    if (_input == null) return;
-
-    var keyboard = Keyboard.current;
-    if (keyboard == null) return;
-
-    Vector2 moveInput = Vector2.zero;
-    bool jumpInput = false;
-
-    if (PlayerID == 1)
+    // Verifica se o objeto tocado é uma moeda (por Tag ou pelo Nome do objeto)
+    if (other.CompareTag("Coin") || other.gameObject.name.Contains("Coin"))
     {
-        // Player 1: WASD + Space
-        if (keyboard.wKey.isPressed) moveInput.y += 1f;
-        if (keyboard.sKey.isPressed) moveInput.y -= 1f;
-        if (keyboard.aKey.isPressed) moveInput.x -= 1f;
-        if (keyboard.dKey.isPressed) moveInput.x += 1f;
+        // 1. Aumenta a velocidade do jogador
+        ApplySpeedBoost();
 
-        jumpInput = keyboard.spaceKey.isPressed;
+        // 2. Registra no PlayerOM (Isso dispara o evento que faz a UI/Ugui atualizar!)
+        PlayerOM.AddCoin(PlayerID);
+
+        // 3. Destrói a moeda do mapa
+        Destroy(other.gameObject);
     }
-    else if (PlayerID == 2)
-    {
-        // Player 2: Setas + Numpad 0 / Tecla 0
-        if (keyboard.upArrowKey.isPressed) moveInput.y += 1f;
-        if (keyboard.downArrowKey.isPressed) moveInput.y -= 1f;
-        if (keyboard.leftArrowKey.isPressed) moveInput.x -= 1f;
-        if (keyboard.rightArrowKey.isPressed) moveInput.x += 1f;
-
-        jumpInput = keyboard.numpad0Key.isPressed || keyboard.digit0Key.isPressed;
-    }
-
-    _input.move = moveInput.normalized;
-    
-    // ATRIBUIÇÃO DIRETA: Força a variável a seguir APENAS o controle do PlayerID
-    _input.jump = jumpInput; 
 }
+
         private void AssignAnimationIDs()
         {
             _animIDSpeed = Animator.StringToHash("Speed");
@@ -192,10 +206,9 @@ namespace StarterAssets
 
             if (_input.move != Vector2.zero)
             {
-                // Calcula a direção em relação à câmera individual do jogador
                 float cameraYaw = playerCameraTransform != null ? playerCameraTransform.eulerAngles.y : 0f;
                 _targetRotation = Mathf.Atan2(inputDirection.x, inputDirection.z) * Mathf.Rad2Deg + cameraYaw;
-                
+
                 float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, _targetRotation, ref _rotationVelocity, RotationSmoothTime);
                 transform.rotation = Quaternion.Euler(0.0f, rotation, 0.0f);
             }
@@ -242,13 +255,10 @@ namespace StarterAssets
 
         private void OnFootstep(AnimationEvent animationEvent)
         {
-            if (animationEvent.animatorClipInfo.weight > 0.5f)
+            if (animationEvent.animatorClipInfo.weight > 0.5f && FootstepAudioClips.Length > 0)
             {
-                if (FootstepAudioClips.Length > 0)
-                {
-                    var index = Random.Range(0, FootstepAudioClips.Length);
-                    AudioSource.PlayClipAtPoint(FootstepAudioClips[index], transform.TransformPoint(_controller.center), FootstepAudioVolume);
-                }
+                var index = Random.Range(0, FootstepAudioClips.Length);
+                AudioSource.PlayClipAtPoint(FootstepAudioClips[index], transform.TransformPoint(_controller.center), FootstepAudioVolume);
             }
         }
 
